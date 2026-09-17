@@ -11,7 +11,7 @@ então os processa da maneira necessária. Uma thread para coletar os dados do b
 para processar os dados.
 */
 
-#define TAMANHO_BUFFER 15
+#define TAMANHO_BUFFER 5
 
 typedef struct{
     int *buffer;
@@ -20,36 +20,31 @@ typedef struct{
     pthread_mutexattr_t attr;
 }shared_mem;
 
-void consumer(int *buffer, int *counter){
-    if(*counter > 0){
-        for(;*counter >= 0; (*counter)--){
-            printf("Consumer: %d\n", buffer[*counter]);
-            buffer[*counter] = 0;
-            printf("Consumer: %d\n", buffer[*counter]);
+void consumer(shared_mem *ptr){
+    if(ptr->counter > 0){
+        printf("////////// CONSUMER //////////\n");
+        for(;ptr->counter > 0; ptr->counter--){
+            printf("Counter: %d\n", ptr->buffer[ptr->counter]);
+            ptr->buffer[ptr->counter] = 0;
+            printf("Consumer: %d\n", ptr->buffer[ptr->counter]);
         }
     }
 }
 
-void producer(int *buffer, int *counter){
-    if(*counter == 0){
-        for(;*counter < TAMANHO_BUFFER; (*counter)++){
-            printf("counter %d\n", *counter);
-            buffer[*counter] = *counter + 5;
-            printf("Producer: %d\n", buffer[*counter]);
+void producer(shared_mem *ptr){
+    if(ptr->counter == 0){
+        printf("////////// PRODUCER //////////\n");
+        for(;ptr->counter < 5; ptr->counter++){
+            printf("counter %d\n", ptr->counter);
+            ptr->buffer[ptr->counter] = ptr->counter;
+            printf("Producer: %d\n", ptr->buffer[ptr->counter]);
         }
-    }
+    } 
 }
 
 int main(){
     int i;
     shared_mem *ptr;
-    shared_mem shared;
-    shared.counter = 0;
-
-    pthread_mutexattr_init(&shared.attr);
-    pthread_mutexattr_setpshared(&shared.attr, PTHREAD_PROCESS_SHARED);
-    pthread_mutex_init(&shared.mutex, &shared.attr);
-    pthread_mutexattr_destroy(&shared.attr);
 
     ptr = mmap
         (NULL,
@@ -59,7 +54,7 @@ int main(){
         -1,
         0);
 
-    shared.buffer = mmap
+    ptr->buffer = mmap
         (NULL,
         TAMANHO_BUFFER * sizeof(int),
         PROT_READ | PROT_WRITE,
@@ -67,19 +62,30 @@ int main(){
         -1,
         0);
 
+    pthread_mutexattr_init(&ptr->attr);
+    pthread_mutexattr_setpshared(&ptr->attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutex_init(&ptr->mutex, &ptr->attr);
+    pthread_mutexattr_destroy(&ptr->attr);
+
+    ptr->counter = 0;
+
     pid_t proc = fork();
 
     while(true){
         if(proc == 0){
-            pthread_mutex_lock(&shared.mutex);
-            producer(shared.buffer, &shared.counter);
-            pthread_mutex_unlock(&shared.mutex);
+            pthread_mutex_lock(&ptr->mutex);
+            producer(ptr);
+            pthread_mutex_unlock(&ptr->mutex);
         }
 
         if(proc != 0){
-            pthread_mutex_lock(&shared.mutex);
-            consumer(shared.buffer, &shared.counter);
-            pthread_mutex_unlock(&shared.mutex);
+            pthread_mutex_lock(&ptr->mutex);
+            consumer(ptr);
+            if(ptr->counter == 0){
+                pthread_mutex_unlock(&ptr->mutex);
+                continue;
+            }
+            pthread_mutex_unlock(&ptr->mutex);
         }
     }
 
